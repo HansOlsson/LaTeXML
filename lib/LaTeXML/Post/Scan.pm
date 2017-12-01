@@ -70,6 +70,23 @@ sub registerHandler {
   $$self{handlers}{$tag} = $handler;
   return; }
 
+sub modId {
+  my ($self, $doc, $node) = @_;
+  # Use the part after LABEL: as xml:id  - if any exists
+  # 
+  # This function should be called for all nodes before using their xml:id (and after labels are added)
+  # Note that I'm in no way an expert perl-hacker
+  my $labels = $node->getAttribute('labels');
+  if (defined $labels) {
+    foreach my $label (split(' ', $labels)) {
+       if (substr($label, 0, 6) eq 'LABEL:') {
+         substr($label, 0, 6, '');
+         $node->setAttribute('xml:id' => $label);
+         return;
+       }
+    }
+  }}
+
 sub process {
   my ($self, $doc, $root) = @_;
   # I think we really need an ID here to establish the root node in the DB,
@@ -185,6 +202,7 @@ sub truncateNode {
 
 sub default_handler {
   my ($self, $doc, $node, $tag, $parent_id) = @_;
+  $self->modId($doc, $node);
   my $id = $node->getAttribute('xml:id');
   if ($id) {
     $$self{db}->register("ID:$id", id => orNull($id), type => orNull($tag), parent => orNull($parent_id),
@@ -201,6 +219,7 @@ sub default_handler {
 
 sub section_handler {
   my ($self, $doc, $node, $tag, $parent_id) = @_;
+  $self->modId($doc, $node);
   my $id = $node->getAttribute('xml:id');
   if ($id) {
     $$self{db}->register("ID:$id", id => orNull($id), type => orNull($tag), parent => orNull($parent_id),
@@ -222,6 +241,7 @@ sub section_handler {
 
 sub captioned_handler {
   my ($self, $doc, $node, $tag, $parent_id) = @_;
+  $self->modId($doc, $node);
   my $id = $node->getAttribute('xml:id');
   if ($id) {
     $$self{db}->register("ID:$id", id => orNull($id), type => orNull($tag), parent => orNull($parent_id),
@@ -245,6 +265,7 @@ sub captioned_handler {
 
 sub labelled_handler {
   my ($self, $doc, $node, $tag, $parent_id) = @_;
+  $self->modId($doc, $node);
   my $id = $node->getAttribute('xml:id');
   if ($id) {
     my $refnum  = $node->getAttribute('refnum');
@@ -272,6 +293,7 @@ sub labelled_handler {
 # Maybe with some careful redesign of the schema, this would fall under labelled?
 sub note_handler {
   my ($self, $doc, $node, $tag, $parent_id) = @_;
+  $self->modId($doc, $node);
   my $id = $node->getAttribute('xml:id');
   if ($id) {
     my $refnum = $node->getAttribute('mark');
@@ -296,6 +318,7 @@ sub note_handler {
 
 sub anchor_handler {
   my ($self, $doc, $node, $tag, $parent_id) = @_;
+  $self->modId($doc, $node);
   my $id = $node->getAttribute('xml:id');
   if ($id) {
     $$self{db}->register("ID:$id", id => orNull($id), type => orNull($tag), parent => orNull($parent_id),
@@ -313,6 +336,7 @@ sub anchor_handler {
 
 sub ref_handler {
   my ($self, $doc, $node, $tag, $parent_id) = @_;
+  $self->modId($doc, $node);
   my $id = $node->getAttribute('xml:id');
   if (my $label = $node->getAttribute('labelref')) {    # Only record refs of labels
                                                         # Don't scan refs from TOC or 'cited' bibblock
@@ -361,6 +385,7 @@ sub indexmark_handler {
 # This handles glossaryentry
 sub glossaryentry_handler {
   my ($self, $doc, $node, $tag, $parent_id) = @_;
+  $self->modId($doc, $node);
   my $id   = $node->getAttribute('xml:id');
   my $role = $node->getAttribute('role') || 'glossary';
   my $key  = $node->getAttribute('key');
