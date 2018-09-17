@@ -538,10 +538,11 @@ sub generateURL {
       my $extension = $$self{extension} || 'xml';
       my $urlstyle  = $$self{urlstyle}  || 'file';
       if ($urlstyle eq 'server') {
-        $url =~ s/(^|\/)index.\Q$extension\E$/$1/; }    # Remove trailing index.$extension
+        # Remove trailing index.$extension but be careful not to leave url empty! (then it's "self")
+        $url =~ s/(^|\/)index.\Q$extension\E$/($1 ? $1 : '.\/')/e; }
       elsif ($urlstyle eq 'negotiated') {
-        $url =~ s/\.\Q$extension\E$//;                  # Remove trailing $extension
-        $url =~ s/(^|\/)index$/$1/;                     # AND trailing index
+        $url =~ s/\.\Q$extension\E$//;    # Remove trailing $extension
+        $url =~ s/(^|\/)index$/$1/;       # AND trailing index
       }
       $url = '.' unless $url;
       if (my $fragid = $object->getValue('fragid')) {
@@ -772,7 +773,7 @@ sub fillInGlossaryRef {
     my $key  = $ref->getAttribute('key');
     my $show = $ref->getAttribute('show');
     if (my $entry = $$self{db}->lookup(join(':', 'GLOSSARY', $role, $key))) {
-      my $title = $entry->getValue('expansion');
+      my $title = $entry->getValue('definition');
       if (!$ref->getAttribute('title') && $title) {
         $ref->setAttribute(title => $title->textContent); }
       if (my $id = $entry->getValue('id')) {

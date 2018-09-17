@@ -1591,7 +1591,8 @@ sub DefEnvironmentI {
             for (my $f = 0 ; $f <= $nf ; $f++) {    # Get currently open environments & locators
               if (my $e = $STATE->isValueBound('current_environment', $f)
                 && $STATE->valueInFrame('current_environment', $f)) {
-                push(@lines, $e . ' ' . $STATE->valueInFrame('groupInitiatorLocator', $f) || ''); } }
+                my $locator = ToString($STATE->valueInFrame('groupInitiatorLocator', $f));
+                push(@lines, $e . ' ' . $locator); } }
             Error('unexpected', "\\end{$name}", $_[0],
               "Can't close environment $name;", "Current are:", @lines); }
           return; },
@@ -2256,6 +2257,7 @@ sub maybeRequireDependencies {
     if (open($IN, '<', $path)) {
       my $code = <$IN>;
       close($IN);
+      my @classes  = ();
       my @packages = ();
       my %dups     = ();
       my $collect  = sub {
@@ -2268,9 +2270,16 @@ sub maybeRequireDependencies {
       $code =~ s/\\RequirePackage\s*(?:\[([^\]]*)\])?\s*\{([^\}]*)\}/ &$collect($2,$1); /xegs;
       # Ugh. \usepackage, too
       $code =~ s/\\usepackage\s*(?:\[([^\]]*)\])?\s*\{([^\}]*)\}/ &$collect($2,$1); /xegs;
+      # Even more ugh; \LoadClass
+      if($type eq 'cls'){
+        $code =~ s/\\LoadClass\s*(?:\[([^\]]*)\])?\s*\{([^\}]*)\}/ push(@classes,[$2,$1]); /xegs; }
 
       Info('dependencies', 'dependencies', undef,
-        "Loading dependencies for $path: " . join(',', map { $$_[0]; } @packages)) if @packages;
+        "Loading dependencies for $path: " . join(',', map { $$_[0]; } @classes,@packages)) if scalar(@classes) || scalar(@packages);
+      foreach my $pair (@classes) {
+        my ($class, $options) = @$pair;
+        if (FindFile($class, type => 'cls', notex => 1)) {
+          LoadClass($class, ($options ? (options => [split(/\s*,\s*/, $options)]) : ())); } }
       foreach my $pair (@packages) {
         my ($package, $options) = @$pair;
         if (FindFile($package, type => 'sty', notex => 1)) {
@@ -2340,7 +2349,7 @@ sub FontDecode {
   my ($map, $font);
   if (!$encoding) {
     $font     = LookupValue('font');
-    $encoding = $font->getEncoding; }
+    $encoding = $font->getEncoding || 'OT1'; }
   if ($encoding && ($map = LoadFontMap($encoding))) {    # OK got some map.
     my ($family, $fmap);
     if ($font && ($family = $font->getFamily) && ($fmap = LookupValue($encoding . '_' . $family . '_fontmap'))) {
