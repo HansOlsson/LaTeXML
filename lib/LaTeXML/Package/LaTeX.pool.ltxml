@@ -568,17 +568,17 @@ DefMacro('\@startsection{}{}{}{}{}{} OptionalMatch:*', sub {
     my $ctr = LookupValue('counter_for_' . ToString($type)) || ToString($type);
     $level = ToString($level);
     if ($flag) {    # No number, not in TOC
-      (T_CS('\@startsection@hook'), T_CS('\\@@unnumbered@section'),
+      (T_CS('\par'),T_CS('\@startsection@hook'), T_CS('\\@@unnumbered@section'),
         T_BEGIN, $type->unlist, T_END,
         T_BEGIN, T_END); }
     elsif ((($level ne '') && ($level > CounterValue('secnumdepth')->valueOf))
       || LookupValue('no_number_sections')) {
       # No number, but in TOC
-      (T_CS('\@startsection@hook'), T_CS('\\@@unnumbered@section'),
+      (T_CS('\par'),T_CS('\@startsection@hook'), T_CS('\\@@unnumbered@section'),
         T_BEGIN, $type->unlist, T_END,
         T_BEGIN, T_OTHER('toc'), T_END); }
     else {          # Number and in TOC
-      (T_CS('\@startsection@hook'), T_CS('\\@@numbered@section'),
+      (T_CS('\par'),T_CS('\@startsection@hook'), T_CS('\\@@numbered@section'),
         T_BEGIN, $type->unlist, T_END,
         T_BEGIN, T_OTHER('toc'), T_END); } });
 
@@ -1709,6 +1709,7 @@ sub beforeEquation {
   my $numbering = LookupValue('EQUATION_NUMBERING');
   my $numbered  = $$numbering{numbered};
   my $ctr       = $$numbering{counter} || 'equation';
+  $$numbering{in_equation} = 1;
   if ($$numbering{preset}) {
     AssignValue(EQUATIONROW_TAGS => {
         preset => 1,
@@ -1733,12 +1734,13 @@ sub retractEquation {
 # Ahhhh, but in eqnarray, this isn't effected until \\ !!!!!
 DefMacroI('\nonumber', undef, '\lx@equation@nonumber');
 DefPrimitiveI('\lx@equation@nonumber', undef, sub {
-    my $numbering = LookupValue('EQUATION_NUMBERING');
+  my $numbering = LookupValue('EQUATION_NUMBERING');
+  if($$numbering{in_equation}){
     if ($$numbering{deferretract}) {
       my $tags = LookupValue('EQUATIONROW_TAGS');
       $$tags{retract} = 1; }
     else {
-      retractEquation(); }
+      retractEquation(); } }
     return; });
 Let('\@LTX@nonumber', '\lx@equation@nonumber');
 
@@ -1780,6 +1782,7 @@ sub afterEquation {
       $$row{tags} = $$props{tags}; } }
   elsif ($whatsit) {
     $whatsit->setProperties(%{ LookupValue('EQUATIONROW_TAGS') }); }
+  $$numbering{in_equation} = 0;
   return; }
 
 # My first inclination is to Lock {math}, but it is surprisingly common to redefine it in silly ways... So...?
@@ -2205,7 +2208,6 @@ DefConstructor('\lx@stackrel{}{}',
 #======================================================================-
 # All this is already in TeX.pool
 
-DefMacro('\skew{}{}{}', '');    # ? just some subtle spacing, right????
 #======================================================================-
 # C.7.7 Spacing
 #======================================================================-
@@ -3843,7 +3845,9 @@ DefPrimitiveI('\-', undef, undef);    # We don't do hyphenation.
 
 DefPrimitiveI('\sloppy', undef, undef);
 DefPrimitiveI('\fussy',  undef, undef);
-DefEnvironment('{sloppypar}', '#body');
+# sloppypar can be used as an environment, or by itself.
+DefMacro('\sloppypar','\par\sloppy');
+DefMacro('\endsloppypar','\par');
 DefMacroI('\nobreakdashes', undef, T_OTHER('-'));
 
 DefMacro('\showhyphens{}', '#1');     # ?
@@ -5277,6 +5281,7 @@ DefPrimitiveI('\@@end', undef, sub { $_[0]->getGullet->flush; return; });
 RawTeX(<<'EoTeX');
 \newlanguage\l@english
 \newlanguage\l@usenglishmax
+\newlanguage\l@USenglish
 \newlanguage\l@dumylang
 \newlanguage\l@nohyphenation
 \newlanguage\l@arabic
