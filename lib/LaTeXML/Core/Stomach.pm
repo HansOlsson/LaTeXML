@@ -32,7 +32,7 @@ use base qw(LaTeXML::Common::Object);
 #**********************************************************************
 sub new {
   my ($class, %options) = @_;
-  return bless { gullet => LaTeXML::Core::Gullet->new(),
+  return bless { gullet => LaTeXML::Core::Gullet->new(%options),
     boxing => [], token_stack => [] }, $class; }
 
 #**********************************************************************
@@ -64,6 +64,17 @@ sub getLocator {
 sub getBoxingLevel {
   my ($self) = @_;
   return scalar(@{ $$self{boxing} }); }
+
+# ScriptLevel is similar to boxing level, but relative to current Math mode's level
+# This is used for the scriptpos attribute to recognize overlapping sccripts.
+# Making it relative to the math's level avoids unnecessary changes
+sub getScriptLevel {
+  my ($self) = @_;
+  my $boxlevel = scalar(@{ $$self{boxing} });
+  if (my $prevlevel = $STATE->lookupValue('script_base_level')) {
+    return $boxlevel - $prevlevel + 1; }
+  else {
+    return $boxlevel; } }
 
 #**********************************************************************
 # Digestion
@@ -115,7 +126,7 @@ sub digest {
         if $initdepth < $depth;
 
       List(@LaTeXML::LIST, mode => ($ismath ? 'math' : 'text'));
-      }); }
+    }); }
 
 # Invoke a token;
 # If it is a primitive or constructor, the definition will be invoked,
@@ -141,7 +152,9 @@ INVOKE:
   my @result  = ();
   my $meaning = $STATE->lookupDigestableDefinition($token);
 
-  if ($meaning->isaToken) {    # Common case
+  if (!$meaning) {
+    @result = $self->invokeToken_undefined($token); }
+  elsif ($meaning->isaToken) {    # Common case
     my $cc = $meaning->getCatcode;
     if ($cc == CC_CS) {
       @result = $self->invokeToken_undefined($token); }
@@ -158,7 +171,7 @@ INVOKE:
     $gullet->unread(@{ $meaning->invoke($gullet) || [] });
     $token = $gullet->readXToken();    # replace the token by it's expansion!!!
     pop(@{ $$self{token_stack} });
-    goto INVOKE; }
+    goto INVOKE if $token; }
   elsif ($meaning->isaDefinition) {    # Otherwise, a normal primitive or constructor
     @result = $meaning->invoke($self);
     $STATE->clearPrefixes unless $meaning->isPrefix; }    # Clear prefixes unless we just set one.
@@ -176,52 +189,22 @@ INVOKE:
   pop(@{ $$self{token_stack} });
   return @result; }
 
-sub makeError {
-  my ($document, $type, $content) = @_;
-  my $savenode = undef;
-  $savenode = $document->floatToElement('ltx:ERROR')
-    unless $document->isOpenable('ltx:ERROR');
-  $document->openElement('ltx:ERROR', class => ToString($type));
-  $document->openText_internal(ToString($content));
-  $document->closeElement('ltx:ERROR');
-  $document->setNode($savenode) if $savenode;
-  return; }
-
 sub invokeToken_undefined {
   my ($self, $token) = @_;
-  my $cs = $token->getCSName;
-  $STATE->noteStatus(undefined => $cs);
-  # To minimize chatter, go ahead and define it...
-  if ($cs =~ /^\\if(.*)$/) {    # Apparently an \ifsomething ???
-    my $name = $1;
-    Error('undefined', $token, $self, "The token " . Stringify($token) . " is not defined.",
-      "Defining it now as with \\newif");
-    $STATE->installDefinition(LaTeXML::Core::Definition::Expandable->new(
-        T_CS('\\' . $name . 'true'), undef, '\let' . $cs . '\iftrue'));
-    $STATE->installDefinition(LaTeXML::Core::Definition::Expandable->new(
-        T_CS('\\' . $name . 'false'), undef, '\let' . $cs . '\iffalse'));
-    LaTeXML::Package::Let($token, T_CS('\iffalse'));
-    $self->getGullet->unread($token);    # Retry
-    return; }
-  else {
-    Error('undefined', $token, $self, "The token " . Stringify($token) . " is not defined.",
-      "Defining it now as <ltx:ERROR/>");
-    $STATE->installDefinition(LaTeXML::Core::Definition::Constructor->new($token, undef,
-        sub { makeError($_[0], 'undefined', $cs); }),
-      'global');
-    # and then invoke it.
-    return $self->invokeToken($token); } }
+  $STATE->generateErrorStub($self, $token);
+  $self->getGullet->unread($token);    # Retry
+  return; }
 
 sub invokeToken_simple {
   my ($self, $token, $meaning) = @_;
   my $cc   = $meaning->getCatcode;
   my $font = $STATE->lookupValue('font');
-  $STATE->clearPrefixes;    # prefixes shouldn't apply here.
+  $STATE->clearPrefixes;               # prefixes shouldn't apply here.
   if ($cc == CC_SPACE) {
     if ($STATE->lookupValue('IN_MATH')) {    # (but in Preamble, OK ?)
       return (); }
     else {
-      return Box($meaning->getString, $font, $$self{gullet}->getLocator, $meaning); } }
+      return Box($meaning->getString, $font, $self->getGullet->getLocator, $meaning); } }
   elsif ($cc == CC_COMMENT) {                # Note: Comments need char decoding as well!
     my $comment = LaTeXML::Package::FontDecodeString($meaning->getString, undef, 1);
     # However, spaces normally would have be digested away as positioning...
@@ -343,17 +326,18 @@ sub setMode {
   elsif ($ismath) {
     # When entering math mode, we set the font to the default math font,
     # and save the text font for any embedded text.
-    $STATE->assignValue(savedfont => $curfont, 'local');
+    $STATE->assignValue(savedfont         => $curfont, 'local');
+    $STATE->assignValue(script_base_level => scalar(@{ $$self{boxing} }));    # See getScriptLevel
     $STATE->assignValue(font => $STATE->lookupValue('mathfont')->merge(
-        color => $curfont->getColor, background => $curfont->getBackground,
-        size => $curfont->getSize,
+        color     => $curfont->getColor, background => $curfont->getBackground,
+        size      => $curfont->getSize,
         mathstyle => ($mode =~ /^display/ ? 'display' : 'text')), 'local'); }
   else {
     # When entering text mode, we should set the font to the text font in use before the math
     # but inherit color and size
     $STATE->assignValue(font => $STATE->lookupValue('savedfont')->merge(
         color => $curfont->getColor, background => $curfont->getBackground,
-        size => $curfont->getSize), 'local'); }
+        size  => $curfont->getSize), 'local'); }
   return; }
 
 sub beginMode {
@@ -377,7 +361,7 @@ sub endMode {
 
 __END__
 
-=pod 
+=pod
 
 =head1 NAME
 
@@ -412,7 +396,7 @@ are collected into a L<LaTeXML::Core::List>.
 
 =item Constructors
 
-A special class of control sequence, called a L<LaTeXML::Core::Definition::Constructor> produces a 
+A special class of control sequence, called a L<LaTeXML::Core::Definition::Constructor> produces a
 L<LaTeXML::Core::Whatsit> which remembers the control sequence and arguments that
 created it, and defines its own translation into C<XML> elements, attributes and data.
 Arguments to a constructor are read from the gullet and also digested.
@@ -427,7 +411,7 @@ Arguments to a constructor are read from the gullet and also digested.
 
 Return the digested L<LaTeXML::Core::List> after reading and digesting a `body'
 from the its Gullet.  The body extends until the current
-level of boxing or environment is closed.  
+level of boxing or environment is closed.
 
 =item C<< $list = $stomach->digest($tokens); >>
 
@@ -445,7 +429,7 @@ A List of Box's, Lists, Whatsit's is returned.
 
 =item C<< @boxes = $stomach->regurgitate; >>
 
-Removes and returns a list of the boxes already digested 
+Removes and returns a list of the boxes already digested
 at the current level.  This peculiar beast is used
 by things like \choose (which is a Primitive in TeX, but
 a Constructor in LaTeXML).

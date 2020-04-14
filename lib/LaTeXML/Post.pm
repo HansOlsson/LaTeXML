@@ -56,7 +56,7 @@ sub ProcessChain_internal {
     foreach my $doc (@docs) {
       local $LaTeXML::Post::DOCUMENT = $doc;
       if (my @nodes = grep { $_ } $processor->toProcess($doc)) {    # If there are nodes to process
-        my $n = scalar(@nodes);
+        my $n   = scalar(@nodes);
         my $msg = join(' ', $processor->getName || '',
           $doc->siteRelativeDestination || '',
           ($n > 1 ? "$n to process" : 'processing'));
@@ -198,13 +198,18 @@ sub generateResourcePathname {
   my $subdir = $$self{resource_directory} || '';
   my $prefix = $$self{resource_prefix}    || "x";
   my $counter = join('_', "_max", $subdir, $prefix, "counter_");
-  my $n = $doc->cacheLookup($counter) || 0;
+  my $n    = $doc->cacheLookup($counter) || 0;
   my $name = $prefix . ++$n;
   $doc->cacheStore($counter, $n);
   return pathname_make(dir => $subdir, name => $name, type => $type); }
 
-# Get a list [class,classoptions, oldstyle],[package,packageoptions],...]
-# The options are strings
+# Returns a two-part list of the form:
+#
+# [class, classoptions, oldstyle], [package1,package1options], [package2,package2options], ...
+#
+# Where there first element is always the *class* (if none, "article" returned as a default)
+# And all following elements are *packages*
+#
 sub find_documentclass_and_packages {
   my ($self, $doc) = @_;
   my ($class, $classoptions, $oldstyle, @packages);
@@ -218,8 +223,7 @@ sub find_documentclass_and_packages {
       $classoptions = $$entry{options} || 'onecolumn';
       $oldstyle     = $$entry{oldstyle}; }
     elsif ($$entry{package}) {
-      push(@packages, [$$entry{package}, $$entry{options} || '']); }
-  }
+      push(@packages, [$$entry{package}, $$entry{options} || '']); } }
   if (!$class) {
     Warn('expected', 'class', undef, "No document class found; using article");
     $class = 'article'; }
@@ -336,7 +340,7 @@ sub processNode {
   # XMath will be removed (LATER!), but mark its ids as reusable.
   $doc->preremoveNodes($xmath);
   if ($$self{parallel}) {
-    my $primary = $self->convertNode($doc, $xmath);
+    my $primary     = $self->convertNode($doc, $xmath);
     my @secondaries = ();
     foreach my $proc (@{ $$self{secondary_processors} }) {
       local $LaTeXML::Post::MATHPROCESSOR = $proc;
@@ -425,7 +429,7 @@ sub convertXMTextContent {
       my $tag = $doc->getQName($node);
       if ($tag eq 'ltx:XMath') {
         my $conversion = $self->convertNode($doc, $node);
-        my $xml = $$conversion{xml};
+        my $xml        = $$conversion{xml};
         # And if no xml ????
         push(@result, $self->outerWrapper($doc, $node, $xml)); }
       else {
@@ -506,7 +510,9 @@ sub associateNode {
       $q = $document->getQName($op) || 'unknown'; }    # get "real" operator
     if ($q eq 'ltx:XMRef') {
       $op = $document->realizeXMNode($op); }
-    if ($op && !$op->getAttribute('_pvis')) {
+    # Be a bit fuzzy about whether something is "visible"
+    if ($op && !($op->getAttribute('_pvis')
+        && (($op->getAttribute('thickness') || '<anything>') ne '0pt'))) {
       $sourcenode = $op; }
     else {
       $sourcenode = $container; } }
@@ -516,7 +522,7 @@ sub associateNode {
       $document->generateNodeID($sourcenode, '', 1); }         # but the ID is reusable
     if (my $sourceid = $sourcenode->getAttribute('fragid')) {    # If source has ID
       my $nodeid = $currentnode->getAttribute('fragid') || $sourceid;
-      my $id = $document->uniquifyID($nodeid, $self->IDSuffix);
+      my $id     = $document->uniquifyID($nodeid, $self->IDSuffix);
       if ($isarray) {
         $$node[1]{'xml:id'} = $id; }
       else {
@@ -737,11 +743,13 @@ sub setDocument_internal {
     foreach my $node ($self->findnodes("//*[\@xml:id]")) {    # Now record all ID's
       $$self{idcache}{ $node->getAttribute('xml:id') } = $node; }
     # Fetch any additional namespaces from the root
-    foreach my $ns ($root->documentElement->getNamespaces) {
-      my ($prefix, $uri) = ($ns->getLocalName, $ns->getData);
-      if ($prefix) {
-        $$self{namespaces}{$prefix} = $uri    unless $$self{namespaces}{$prefix};
-        $$self{namespaceURIs}{$uri} = $prefix unless $$self{namespaceURIs}{$uri}; } }
+
+    if (my $docroot = $root->documentElement) {
+      foreach my $ns ($docroot->getNamespaces) {
+        my ($prefix, $uri) = ($ns->getLocalName, $ns->getData);
+        if ($prefix) {
+          $$self{namespaces}{$prefix} = $uri    unless $$self{namespaces}{$prefix};
+          $$self{namespaceURIs}{$uri} = $prefix unless $$self{namespaceURIs}{$uri}; } } }
 
     # Extract data from latexml's ProcessingInstructions
     # I'd like to provide structured access to the PI's for those modules that need them,
@@ -775,7 +783,7 @@ sub setDocument_internal {
     my ($tag, $attributes, @children) = @$root;
     my ($prefix, $localname) = $tag =~ /^(.*):(.*)$/;
     my $nsuri = $$self{namespaces}{$prefix};
-    my $node = $$self{document}->createElementNS($nsuri, $localname);
+    my $node  = $$self{document}->createElementNS($nsuri, $localname);
     $$self{document}->setDocumentElement($node);
     map { $$attributes{$_} && $node->setAttribute($_ => $$attributes{$_}) } keys %$attributes
       if $attributes;
@@ -901,7 +909,9 @@ sub validate {
       $rng->validate($$self{document}); };
     LaTeXML::Post::Error("malformed", 'document', undef,
       "Document fails RelaxNG validation (" . $schema . ")",
-      "Validation reports: " . $@) if $@ || !defined $v; }
+      "Validation reports: " . $@,
+      "(Jing may provide a more precise report; https://relaxng.org/jclark/jing.html)")
+      if $@ || !defined $v; }
   elsif (my $decldtd = $$self{document}->internalSubset) {    # Else look for DTD Declaration
     my $dtd = XML::LibXML::Dtd->new($decldtd->publicId, $decldtd->systemId);
     if (!$dtd) {
@@ -927,7 +937,7 @@ sub idcheck {
   my %missing = ();
   foreach my $node ($self->findnodes("//*[\@xml:id]")) {
     my $id = $node->getAttribute('xml:id');
-    $dups{$id} = 1 if $idcache{$id};
+    $dups{$id}    = 1 if $idcache{$id};
     $idcache{$id} = 1; }
   foreach my $id (keys %{ $$self{idcache} }) {
     $missing{$id} = 1 unless $idcache{$id}; }
@@ -1181,13 +1191,14 @@ sub prependNodes {
 sub cloneNode {
   my ($self, $node, $idsuffix, %options) = @_;
   return $node unless ref $node;
+  return $node if ref $node eq 'ARRAY'; # Should we deep clone if we get an array? Just return for now
   my $copy    = $node->cloneNode(1);
   my $nocache = $options{nocache};
 ####  $idsuffix = '' unless defined $idsuffix;
   # Find all id's defined in the copy and change the id.
   my %idmap = ();
   foreach my $n ($self->findnodes('descendant-or-self::*[@xml:id]', $copy)) {
-    my $id = $n->getAttribute('xml:id');
+    my $id    = $n->getAttribute('xml:id');
     my $newid = $self->uniquifyID($id, $idsuffix);
     $idmap{$id} = $newid;
     $self->recordID($newid => $n) unless $nocache;
@@ -1364,7 +1375,7 @@ sub realizeXMNode {
         if (my $realnode = $self->findNodeByID($id)) {
           $node = $realnode; }
         else {
-          Fatal('expected', 'id', undef, "Cannot find a node with xml:id='$id'");
+          Error('expected', 'id', undef, "Cannot find a node with xml:id='$id'");
           return; } }
       elsif ($qname eq 'ltx:XMDual') {
         my ($content, $presentation) = element_nodes($node);
@@ -1376,7 +1387,7 @@ sub realizeXMNode {
     if (my $realnode = $self->findNodeByID($id)) {
       return $realnode; }
     else {
-      Fatal('expected', 'id', undef, "Cannot find a node with xml:id='$id'");
+      Error('expected', 'id', undef, "Cannot find a node with xml:id='$id'");
       return; } }
   return $node; }
 

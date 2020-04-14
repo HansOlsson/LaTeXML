@@ -47,13 +47,27 @@ my ($bibliography, $splitbibliography, @bibliographies) = (1, undef);
 my ($timestamp)          = (undef);
 my @math_formats         = ();
 my %removed_math_formats = ();
-my $splitback            = "//ltx:bibliography | //ltx:appendix | //ltx:index";
-my %splitpaths           = (
-  part       => "//ltx:part | $splitback",
-  chapter    => "//ltx:part | //ltx:chapter | $splitback",
-  section    => "//ltx:part | //ltx:chapter | //ltx:section | $splitback",
-  subsection => "//ltx:part | //ltx:chapter | //ltx:section | //ltx:subsection | $splitback",
-  subsubsection => "//ltx:part | //ltx:chapter | //ltx:section | //ltx:subsection | //ltx:subsubsection | $splitback");
+my $splitancestors       = {
+  part          => [qw()],
+  chapter       => [qw(part)],
+  section       => [qw(part chapter)],
+  subsection    => [qw(part chapter section)],
+  subsubsection => [qw(part chapter section subsection)] };
+my $splitback = [qw(bibliography appendix index)];
+
+# Contrived xpath, since backmatter can now be at any level!
+sub make_splitpaths {
+  my ($splitat) = @_;
+  my @paths     = ();
+  my $anc       = $$splitancestors{$splitat};
+  foreach my $unit ($splitat, ($anc ? @$anc : ())) {
+    push(@paths, "//ltx:$unit");
+    foreach my $back (@$splitback) {
+      push(@paths, "//ltx:$back\["
+          . join(' or ', "preceding-sibling::ltx:$unit",
+          map { "parent::ltx:$_"; } @{ $$splitancestors{$unit} })
+          . "]"); } }
+  return join(' | ', @paths); }
 
 # Obsolete...
 my $parallelmath;
@@ -69,7 +83,7 @@ GetOptions("quiet" => sub { $verbosity--; },
   "path=s"            => \@paths,
 
   # Basics
-  "format=s" => \$format,
+  "format=s"      => \$format,
   "destination=s" => sub { $destination = $_[1];
     if ((!defined $extension) && ($destination =~ /\.(\w)$/)) {
       $extension = $1; }
@@ -137,8 +151,6 @@ GetOptions("quiet" => sub { $verbosity--; },
   "nokeepXMath"                 => sub { removeMathFormat('XMath'); },
   "mathtex"                     => sub { addMathFormat('mathtex'); },
   "nomathtex"                   => sub { removeMathFormat('mathtex'); },
-  "mathlex"                     => sub { addMathFormat('mathlex'); },
-  "nomathlex"                   => sub { removeMathFormat('mathlex'); },
   # For graphics: vaguely similar issues, but more limited.
   # includegraphics images (eg. ps) can be converted to webimages (eg.png)
   # picture/pstricks images can be converted to png or possibly svg.
@@ -147,10 +159,10 @@ GetOptions("quiet" => sub { $verbosity--; },
   "svg!"           => \$svg,
   "pictureimages!" => \$picimages,
 
-  ) or pod2usage(-message => $LaTeXML::IDENTITY,
+) or pod2usage(-message => $LaTeXML::IDENTITY,
   -exitval => 1, -verbose => 0, -output => \*STDERR);
-pod2usage(-message => $LaTeXML::IDENTITY, -exitval => 1, -verbose => 2, -output => \*STDOUT) if $help;
-if ($showversion) { print STDERR "$LaTeXML::IDENTITY\n"; exit(1); }
+pod2usage(-message => $LaTeXML::IDENTITY, -exitval => 0, -verbose => 2, -output => \*STDOUT) if $help;
+if ($showversion) { print STDERR "$LaTeXML::IDENTITY\n"; exit(0); }
 
 # Get the requested XML file
 xError("Missing input xmlfile") unless @ARGV;
@@ -194,8 +206,8 @@ if ($split && !defined $destination) {
 if ($split) {
   $splitnaming = checkOptionValue('--splitnaming', $splitnaming,
     qw(id idrelative label labelrelative));
-  $splitat = checkOptionValue('--splitat', $splitat, keys %splitpaths);
-  $splitpath = $splitpaths{$splitat} unless defined $splitpath;
+  $splitat = checkOptionValue('--splitat', $splitat, keys %$splitancestors);
+  $splitpath = make_splitpaths($splitat) unless defined $splitpath;
 }
 if ($prescan && !$scan) {
   xError("Makes no sense to --prescan with scanning disabled (--noscan)"); }
@@ -321,7 +333,10 @@ if ($split) {
   push(@procs, LaTeXML::Post::Split->new(split_xpath => $splitpath, splitnaming => $splitnaming,
       db => $DB, %OPTIONS)); }
 
-our $scanner = ($scan || $DB) && LaTeXML::Post::Scan->new(db => $DB, %OPTIONS);
+our $scanner = ($scan || $DB) && LaTeXML::Post::Scan->new(db => $DB,
+  ($splitnaming && ($splitnaming =~ /^label/) ? (labelids => 1) : ()),
+  %OPTIONS);
+
 if ($scan) {
   push(@procs, $scanner); }
 
@@ -397,9 +412,6 @@ if (!$prescan) {
       elsif ($fmt eq 'mathtex') {
         require LaTeXML::Post::TeXMath;
         push(@mprocs, LaTeXML::Post::TeXMath->new(%OPTIONS)); }
-      elsif ($fmt eq 'mathlex') {
-        require LaTeXML::Post::LexMath;
-        push(@mprocs, LaTeXML::Post::LexMath->new(%OPTIONS)); }
     }
     my $main = shift(@mprocs);
     $main->setParallel(@mprocs);
@@ -408,7 +420,7 @@ if (!$prescan) {
   if ($stylesheet) {
     require LaTeXML::Post::XSLT;
     # Copy various kinds of resources, css, javascript, icon (others?)
-    my $parameters = { LATEXML_VERSION => "'$LaTeXML::VERSION'" };
+    my $parameters  = { LATEXML_VERSION => "'$LaTeXML::VERSION'" };
     my @searchpaths = ('.',
       (grep { -d $_ } reverse(@paths)),
       $DOCUMENT->getSearchPaths);
@@ -581,8 +593,6 @@ latexmlpost [options] I<xmlfile>
                          representation (default is to remove)
  --mathtex               adds TeX annotation to parallel markup
  --nomathtex             disables the above (default)
- --mathlex               adds linguistic lexeme annotation to parallel markup
- --nomathlex             disables the above (default)
  --plane1                use plane-1 unicode for symbols
                          (default, if needed)
  --noplane1              do not use plane-1 unicode
@@ -763,7 +773,7 @@ Specifies how to name the files for subdocuments created by splitting.
 The values C<id> and C<label> simply use the id or label of the subdocument's
 root node for it's filename.  C<idrelative> and C<labelrelative> use
 the portion of the id or label that follows the parent document's
-id or label. Furthermore, to impose structure and uniqueness, 
+id or label. Furthermore, to impose structure and uniqueness,
 if a split document has children that are also split, that document
 (and it's children) will be in a separate subdirectory with the
 name index.
@@ -938,7 +948,7 @@ specify a graphics file that will be converted to a more appropriate file
 target format; for example, postscript files used for graphics with LaTeX
 will be converted to png format for use on the web.  As with LaTeX,
 when a graphics file is specified without a file type, the system will search
-for the most appropriate target type file. 
+for the most appropriate target type file.
 
 When this option is used, it overrides I<and replaces> the defaults and provides
 a mapping of I<sourcetype> to I<desttype>.  The option can be

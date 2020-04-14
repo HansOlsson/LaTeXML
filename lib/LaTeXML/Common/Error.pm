@@ -15,7 +15,7 @@ use warnings;
 use LaTeXML::Global;
 use LaTeXML::Common::Object;
 use Time::HiRes;
-use Term::ANSIColor;
+use Term::ANSIColor 2.01 qw(colored colorstrip);
 
 use base qw(Exporter);
 our @EXPORT = (
@@ -76,7 +76,7 @@ sub Fatal {
   # This seemingly should be "local", but that doesn't seem to help with timeout/alarm/term?
   # It should be safe so long as the caller has bound it and rebinds it if necessary.
   local $SIG{__DIE__} = 'DEFAULT';    # Avoid recursion while preparing the message.
-  my $state = $STATE;
+  my $state     = $STATE;
   my $verbosity = $state && $state->lookupValue('VERBOSITY') || 0;
 
   if (!$inhandler) {
@@ -111,7 +111,7 @@ sub checkRecursiveError {
 # Should be fatal if strict is set, else warn.
 sub Error {
   my ($category, $object, $where, $message, @details) = @_;
-  my $state = $STATE;
+  my $state     = $STATE;
   my $verbosity = $state && $state->lookupValue('VERBOSITY') || 0;
   if ($state && $state->lookupValue('STRICT')) {
     Fatal($category, $object, $where, $message, @details); }
@@ -129,7 +129,7 @@ sub Error {
 # Warning message; results may be OK, but somewhat unlikely
 sub Warn {
   my ($category, $object, $where, $message, @details) = @_;
-  my $state = $STATE;
+  my $state     = $STATE;
   my $verbosity = $state && $state->lookupValue('VERBOSITY') || 0;
   $state && $state->noteStatus('warning');
   print STDERR generateMessage(colorizeString("Warning:" . $category . ":" . ToString($object), 'warning'),
@@ -141,7 +141,7 @@ sub Warn {
 # but the message may give clues about subsequent warnings or errors
 sub Info {
   my ($category, $object, $where, $message, @details) = @_;
-  my $state = $STATE;
+  my $state     = $STATE;
   my $verbosity = $state && $state->lookupValue('VERBOSITY') || 0;
   $state && $state->noteStatus('info');
   print STDERR generateMessage(colorizeString("Info:" . $category . ":" . ToString($object), 'info'),
@@ -203,7 +203,8 @@ my $at_re         = qr/(at .*)/;                                                
 
 sub perl_die_handler {
   my (@line) = @_;
-  if ($LaTeXML::IGNORE_ERRORS) {    # Just get out now, if we're ignoring errors within an eval.
+  if ($LaTeXML::IGNORE_ERRORS    # Just get out now, if we're ignoring errors within an eval.
+    || (colorstrip($line[0]) =~ /^\s*Fatal:/)) {    # Or, we've already been through here.
     local $SIG{__DIE__} = undef;
     die @line; }
   # We try to find a meaningful name for where the error occurred;
@@ -242,6 +243,8 @@ sub perl_warn_handler {
   if ($line[0] =~ /^Use of uninitialized value (.*?)(\s?+in .*?)\s+(at\s+.*?\s+line\s+\d+)\.$/) {
     my ($what, $how, $where) = ($1 || 'value', $2, $3);
     Warn('uninitialized', $what, $where, "Use of uninitialized value $what $how", @line[1 .. $#line]); }
+  elsif ($line[0] =~ /^Deep recursion on/) {
+    Fatal('perl', 'deep_recursion', undef, $line[0]); }
   elsif ($line[0] =~ /^(.*?)\s+(at\s+.*?\s+line\s+\d+)\.$/) {
     my ($warning, $where) = ($1, $2);
     Warn('perl', 'warn', undef, $warning, $where, @line[1 .. $#line]); }
@@ -471,7 +474,7 @@ sub format_arg {
   elsif (ref $arg)         { $arg = Stringify($arg); }    # Allow overloaded stringify!
   elsif ($arg =~ /^-?[\d.]+\z/) { }                       # Leave numbers alone.
   else {                                                  # Otherwise, string, so quote
-    $arg =~ s/'/\\'/g;                                    # Slashify '
+    $arg =~ s/'/\\'/g;                                        # Slashify '
     $arg =~ s/([[:cntrl:]])/ "\\".chr(ord($1)+ord('A'))/ge;
     $arg = "'$arg'" }
   return trim($arg); }
@@ -628,4 +631,3 @@ Public domain software, produced as part of work done by the
 United States Government & not subject to copyright in the US.
 
 =cut
-

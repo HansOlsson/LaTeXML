@@ -123,7 +123,7 @@ sub image_graphicx_parse {
   my ($v, $clip, $trim, $width, $height, $xscale, $yscale,
     $aspect, $angle, $rotfirst, $mag, @bb, @vp,) = ('', '', '', 0, 0, 0, 0, '', 0, '', 1, 0);
   my @unknown = ();
-  my @ignore = @{ $options{ignore_options} || [] };
+  my @ignore  = @{ $options{ignore_options} || [] };
   foreach (split(',', $transformstring || '')) {
     if (/^\s*(\w+)(?:=\s*(.*))?\s*$/) {
       $_ = $1; $v = $2 || '';
@@ -217,7 +217,7 @@ sub image_graphicx_size {
         ($x0, $y0, $ww, $hh) = (floor($a1 * $dppt), floor($h - $a4 * $dppt),
           ceil(($a3 - $a1) * $dppt), ceil(($a4 - $a2) * $dppt)); }
       ($w, $h) = ($ww, $hh);
-    } }
+  } }
   return ($w, $h); }
 
 # Totally doesn't belong here, but want to share...
@@ -373,7 +373,7 @@ sub image_graphicx_complex {
       # $notes .= " compose to $ww x $hh at $x0,$y0";
       # $image = $nimage;
       # ($w, $h) = ($ww, $hh);
-    } }
+  } }
 
   if ($properties{transparent} && !$hasalpha) {
     $notes .= " transparent=$background";
@@ -433,6 +433,11 @@ sub image_setvalue {
     Error('imageprocessing', 'setvalue', undef, "No image object!"); return; }
   return image_internalop($image, 'Set', @args); }
 
+# Apparently ignorable warnings from Image::Magick
+our %ignorable = map { $_ => 1; } (
+  350,    # profile 'icc' not permitted on grayscale PNG
+);
+
 sub image_internalop {
   my ($image, $operation, @args) = @_;
   if (!$image) {
@@ -444,7 +449,8 @@ sub image_internalop {
     $retcode = $1; }
   if ($retcode < 400) {    # Warning
     Warn('imageprocessing', $operation, undef,
-      "Image processing operation $operation (" . join(', ', @args) . ") returned $retval");
+      "Image processing operation $operation (" . join(', ', @args) . ") returned $retval")
+      unless $ignorable{$retcode};
     return 1; }
   else {                   # Error
     Error('imageprocessing', $operation, undef,

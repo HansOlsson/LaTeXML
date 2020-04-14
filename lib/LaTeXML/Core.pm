@@ -35,10 +35,11 @@ use base qw(LaTeXML::Common::Object);
 
 sub new {
   my ($class, %options) = @_;
+  my $verbosity = defined $options{verbosity} ? $options{verbosity} : 0;
   my $state = LaTeXML::Core::State->new(catcodes => 'standard',
-    stomach => LaTeXML::Core::Stomach->new(),
-    model => $options{model} || LaTeXML::Common::Model->new());
-  $state->assignValue(VERBOSITY => (defined $options{verbosity} ? $options{verbosity} : 0),
+    stomach => LaTeXML::Core::Stomach->new(verbosity => $verbosity),
+    model   => $options{model} || LaTeXML::Common::Model->new());
+  $state->assignValue(VERBOSITY => $verbosity,
     'global');
   $state->assignValue(STRICT => (defined $options{strict} ? $options{strict} : 0),
     'global');
@@ -51,12 +52,17 @@ sub new {
     'global');
   $state->assignValue(GRAPHICSPATHS => [map { pathname_absolute(pathname_canonical($_)) }
         @{ $options{graphicspaths} || [] }], 'global');
-  $state->assignValue(INCLUDE_STYLES => $options{includestyles} || 0, 'global');
-  $state->assignValue(PERL_INPUT_ENCODING => $options{inputencoding}) if $options{inputencoding};
-  $state->assignValue(NOMATHPARSE => $options{nomathparse} || 0, 'global');
+ # For now the "includestyles" option passed from --includestyles will accept both classes and styles?
+  $state->assignValue(INCLUDE_STYLES  => $options{includestyles} || 0, 'global');
+  $state->assignValue(INCLUDE_CLASSES => $options{includestyles} || 0, 'global');
+  # Core has to ensure a default input encoding, and we default towards modern utf-8 documents
+  # This can be removed when all executables rely on LaTeXML::Common::Config
+  $options{inputencoding} = "utf-8" unless $options{inputencoding};
+  $state->assignValue(PERL_INPUT_ENCODING => $options{inputencoding});
+  $state->assignValue(NOMATHPARSE         => $options{nomathparse} || 0, 'global');
   return bless { state => $state,
     nomathparse => $options{nomathparse} || 0,
-    preload => $options{preload},
+    preload     => $options{preload},
   }, $class; }
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -108,10 +114,10 @@ sub digestFile {
   my ($dir, $name, $ext);
   my $mode = $options{mode} || 'TeX';
   if (pathname_is_literaldata($request)) {
-    $dir = undef; $ext = $MODE_EXTENSION{$mode};
+    $dir  = undef; $ext = $MODE_EXTENSION{$mode};
     $name = "Anonymous String"; }
   elsif (pathname_is_url($request)) {
-    $dir = undef; $ext = $MODE_EXTENSION{$mode};
+    $dir  = undef; $ext = $MODE_EXTENSION{$mode};
     $name = $request;
   }
   else {

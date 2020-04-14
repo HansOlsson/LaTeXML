@@ -39,7 +39,7 @@ sub Stringify {
     elsif ($object->isa('XML::LibXML::Node')) {
       if ($object->nodeType == XML_ELEMENT_NODE) {
         my $model = $STATE && $STATE->getModel;
-        my $tag = ($model ? $model->getNodeQName($object)
+        my $tag   = ($model ? $model->getNodeQName($object)
           : $object->nodeName);
         my $attributes = '';
         foreach my $attr ($object->attributes) {
@@ -70,37 +70,37 @@ sub ToString {
 
 # Just how deep of an equality test should this be?
 sub Equals {
-  my ($a, $b) = @_;
-  return 1 if !(defined $a) && !(defined $b);    # both undefined, equal, I guess
-  return 0 unless (defined $a) && (defined $b);  # else both must be defined
-  my $refa = (ref $a) || '_notype_';
-  my $refb = (ref $b) || '_notype_';
+  my ($x, $y) = @_;
+  return 1 if !(defined $x)    && !(defined $y);    # both undefined, equal, I guess
+  return 0 unless (defined $x) && (defined $y);     # else both must be defined
+  my $refx = (ref $x) || '_notype_';
+  my $refy = (ref $y) || '_notype_';
 
-  if ($refa ne $refb) {    # same type required, beware CODE() of Perl subroutines passed in Tokens
-    if ($refa eq 'CODE') {
-      my $flatb = ToString($b);
-      if ($flatb =~ /^CODE/) {
-        $b    = $flatb;
-        $a    = "$a";
-        $refa = $refb = '_notype_'; }
+  if ($refx ne $refy) {    # same type required, beware CODE() of Perl subroutines passed in Tokens
+    if ($refx eq 'CODE') {
+      my $flaty = ToString($y);
+      if ($flaty =~ /^CODE/) {
+        $y    = $flaty;
+        $x    = "$x";
+        $refx = $refy = '_notype_'; }
       else { return 0; } }
-    elsif ($refb eq 'CODE') {
-      my $flata = ToString($a);
-      if ($flata =~ /^CODE/) {
-        $a    = $flata;
-        $b    = "$b";
-        $refa = $refb = '_notype_'; }
+    elsif ($refy eq 'CODE') {
+      my $flatx = ToString($x);
+      if ($flatx =~ /^CODE/) {
+        $x    = $flatx;
+        $y    = "$y";
+        $refx = $refy = '_notype_'; }
       else { return 0; } }
     else { return 0; } }
 
-  return $a eq $b if ($refa eq '_notype_') || $NOBLESS{$refa};    # Deep comparison of builtins?
-        # Special cases? (should be methods, but that embeds State knowledge too low)
+  return $x eq $y if ($refx eq '_notype_') || $NOBLESS{$refx};    # Deep comparison of builtins?
+      # Special cases? (should be methods, but that embeds State knowledge too low)
 
-  if ($refa eq 'LaTeXML::Core::Token') {    # Check if they've been \let to the same defn.
-    my $defa = $STATE->lookupMeaning($a) || $a;
-    my $defb = $STATE->lookupMeaning($b) || $b;
-    return $defa->equals($defb); }
-  return $a->equals($b); }                  # semi-shallow comparison?
+  if ($refx eq 'LaTeXML::Core::Token') {    # Check if they've been \let to the same defn.
+    $x = $STATE->lookupMeaning($x) || $x;
+    $y = $STATE->lookupMeaning($y) || $y;
+  }
+  return $x->equals($y); }                  # semi-shallow comparison?
 
 # Reverts an object into TeX code, as a Tokens list, that would create it.
 # Note that this is not necessarily the original TeX.
@@ -138,12 +138,12 @@ sub toAttribute {
   return $self->toString; }
 
 sub equals {
-  my ($a, $b) = @_;
-  return "$a" eq "$b"; }    # overload::StrVal($a) eq overload::StrVal($b); }
+  my ($x, $y) = @_;
+  return "$x" eq "$y"; }    # overload::StrVal($x) eq overload::StrVal($y); }
 
 sub notequals {
-  my ($a, $b) = @_;
-  return !($a->equals($b)); }
+  my ($x, $y) = @_;
+  return !($x->equals($y)); }
 
 sub isaToken      { return 0; }
 sub isaBox        { return 0; }
@@ -165,11 +165,25 @@ sub unlist {
   return $self; }
 
 #**********************************************************************
+# What about Kern, Glue, Penalty ...
+
+# stubs to avoid "shallow" Fatal errors on broken documents
+sub multiply { return Dimension(0); }
+sub subtract { return Dimension(0); }
+sub add      { return Dimension(0); }
+sub negate   { return Dimension(0); }
+sub divide   { return Dimension(0); }
+sub getX     { return Dimension(0); }
+sub getY     { return Dimension(0); }
+sub ptValue  { return 0.0; }
+sub valueOf  { return 0.0; }
+#**********************************************************************
+
 1;
 
 __END__
 
-=pod 
+=pod
 
 =head1 NAME
 
@@ -189,7 +203,7 @@ to beautify error reporting.
 =item C<< $string = Stringify($object); >>
 
 Returns a string identifying C<$object>, for debugging.
-Works on any values and objects, but invokes the stringify method on 
+Works on any values and objects, but invokes the stringify method on
 blessed objects.
 More informative than the default perl conversion to a string.
 
@@ -205,9 +219,9 @@ without TeX markup.
 Works on any values and objects, but invokes
 the toString method on blessed objects.
 
-=item C<< $boolean = Equals($a,$b); >>
+=item C<< $boolean = Equals($x,$y); >>
 
-Compares the two objects for equality.  Works on any values and objects, 
+Compares the two objects for equality.  Works on any values and objects,
 but invokes the equals method on blessed objects, which does a
 deep comparison of the two objects.
 
@@ -279,4 +293,3 @@ Public domain software, produced as part of work done by the
 United States Government & not subject to copyright in the US.
 
 =cut
-

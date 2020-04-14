@@ -122,9 +122,9 @@ DefConstructor('\endnote[]{}',
     . "#tags"
     . "#2"
     . "</ltx:note>",
-  mode => 'text', bounded => 1,
+  mode         => 'text', bounded => 1,
   beforeDigest => sub { reenterTextMode(1); Digest('\normalfont'); },
-  properties => sub {
+  properties   => sub {
     ($_[1]
       ? (mark => $_[1])
       : (RefStepCounter('endnote'),
@@ -189,6 +189,8 @@ DefConstructor('\references',
     . "bibstyle='#bibstyle' citestyle='#citestyle' sort='#sort'>"
     . "<ltx:title font='#titlefont' _force_font='true'>#title</ltx:title>"
     . "<ltx:biblist>",
+  beforeDigest => sub {
+    beforeDigestBibliography(); },
   afterDigest => sub { beginBibliography($_[1]); });
 
 DefConstructor('\endreferences',

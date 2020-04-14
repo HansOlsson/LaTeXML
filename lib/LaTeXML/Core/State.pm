@@ -88,26 +88,34 @@ use LaTeXML::Core::Token;    # To get CatCodes
 sub new {
   my ($class, %options) = @_;
   my $self = bless {    # table => {},
-    value => {}, meaning => {}, stash => {}, stash_active => {},
-    catcode => {}, mathcode => {}, sfcode => {}, lccode => {}, uccode => {}, delcode => {},
+    value   => {}, meaning  => {}, stash  => {}, stash_active => {},
+    catcode => {}, mathcode => {}, sfcode => {}, lccode       => {}, uccode => {}, delcode => {},
     undo => [{ _FRAME_LOCK_ => 1 }], prefixes => {}, status => {},
     stomach => $options{stomach}, model => $options{model} }, $class;
   # Note that "100" is hardwired into TeX, The Program!!!
   $$self{value}{MAX_ERRORS} = [100];
   $$self{value}{VERBOSITY}  = [0];
+  # Standard TeX units, in scaled points
+  $$self{value}{UNITS} = [{
+      pt => 65536, pc => 12 * 65536, in => 72.27 * 65536, bp => 72.27 * 65536 / 72,
+      cm => 72.27 * 65536 / 2.54,     mm => 72.27 * 65536 / 2.54 / 10, dd => 1238 * 65536 / 1157,
+      cc => 12 * 1238 * 65536 / 1157, sp => 1,
+      px => 72.27 * 65536 / 72,    # Assume px=bp ?
+  }];
+
   $options{catcodes} = 'standard' unless defined $options{catcodes};
   if ($options{catcodes} =~ /^(standard|style)/) {
     # Setup default catcodes.
     my %std = ("\\" => CC_ESCAPE, "{" => CC_BEGIN, "}" => CC_END, "\$" => CC_MATH,
       "\&" => CC_ALIGN, "\r" => CC_EOL,   "#"  => CC_PARAM, "^" => CC_SUPER,
       "_"  => CC_SUB,   " "  => CC_SPACE, "\t" => CC_SPACE, "%" => CC_COMMENT,
-      "~" => CC_ACTIVE, chr(0) => CC_IGNORE);
+      "~" => CC_ACTIVE, chr(0) => CC_IGNORE, "\f" => CC_ACTIVE);
     map { $$self{catcode}{$_} = [$std{$_}] } keys %std;
     for (my $c = ord('A') ; $c <= ord('Z') ; $c++) {
       $$self{catcode}{ chr($c) } = [CC_LETTER];
       $$self{catcode}{ chr($c + ord('a') - ord('A')) } = [CC_LETTER]; }
   }
-  $$self{value}{SPECIALS} = [['^', '_', '@', '~', '&', '$', '#', "'"]];
+  $$self{value}{SPECIALS} = [['^', '_', '~', '&', '$', '#', "'"]];
   if ($options{catcodes} eq 'style') {
     $$self{catcode}{'@'} = [CC_LETTER]; }
   $$self{mathcode}            = {};
@@ -333,6 +341,7 @@ sub lookupMeaning {
   my $e;
   if (my $cs = $token
     && $active_or_cs[$$token[1]]
+    && !$$token[2]    # return token itself, if \noexpand
     && $$token[0]) {
     my $e = $$self{meaning}{$cs}; return $e && $$e[0]; }
   else { return $token; } }
@@ -442,8 +451,9 @@ sub lookupDigestableDefinition {
     && ($defn = $$entry[0])) {
     # If a cs has been let to an executable token, lookup ITS defn.
     if (((ref $defn) eq 'LaTeXML::Core::Token')
-      && ($lookupname = $executable_primitive_name[$$defn[1]])
-      && ($entry      = $$self{meaning}{$lookupname})) {
+      # If we're digesting an unexpanded, act like \relax
+      && ($lookupname = ($$defn[2] ? '\relax' : $executable_primitive_name[$$defn[1]]))
+      && ($entry = $$self{meaning}{$lookupname})) {
       $defn = $$entry[0]; }
     return $defn; }
   return $token; }
@@ -455,7 +465,7 @@ sub installDefinition {
   # Ignore attempts to (re)define $cs from tex sources
   #  my $cs = $definition->getCS->getCSName;
   my $token = $definition->getCS;
-  my $cs = ($LaTeXML::Core::Token::PRIMITIVE_NAME[$$token[1]] || $$token[0]);
+  my $cs    = ($LaTeXML::Core::Token::PRIMITIVE_NAME[$$token[1]] || $$token[0]);
   if ($self->lookupValue("$cs:locked") && !$LaTeXML::Core::State::UNLOCKED) {
     my $s = $self->getStomach->getGullet->getSource;
     # report if the redefinition seems to come from document source
@@ -474,6 +484,32 @@ sub installDefinition {
 # or just variants on testing defined-ness
 # May be will introduce more clarity (possibly efficiency)
 # to collect those more uniformly and implement here, or in Package
+
+#======================================================================
+
+# Generate a stub definition for an undefined control-sequence,
+# along with appropriate error messge.
+sub generateErrorStub {
+  my ($self, $caller, $token, $params) = @_;
+  my $cs = $token->getCSName;
+  $self->noteStatus(undefined => $cs);
+  # To minimize chatter, go ahead and define it...
+  if ($cs =~ /^\\if(.*)$/) {    # Apparently an \ifsomething ???
+    my $name = $1;
+    Error('undefined', $token, $caller, "The token " . $token->stringify . " is not defined.",
+      "Defining it now as with \\newif");
+    $self->installDefinition(LaTeXML::Core::Definition::Expandable->new(
+        T_CS('\\' . $name . 'true'), undef, '\let' . $cs . '\iftrue'));
+    $self->installDefinition(LaTeXML::Core::Definition::Expandable->new(
+        T_CS('\\' . $name . 'false'), undef, '\let' . $cs . '\iffalse'));
+    LaTeXML::Package::Let($token, T_CS('\iffalse')); }
+  else {
+    Error('undefined', $token, $caller, "The token " . $token->stringify . " is not defined.",
+      "Defining it now as <ltx:ERROR/>");
+    $self->installDefinition(LaTeXML::Core::Definition::Constructor->new($token, $params,
+        sub { $_[0]->makeError('undefined', $cs); }),
+      'global'); }
+  return $token; }
 
 #======================================================================
 
@@ -574,7 +610,7 @@ sub popDaemonFrame {
       unless (exists $$pool_preloaded_hash{$subname}) {
         undef $LaTeXML::Package::Pool::{$subname};
         delete $LaTeXML::Package::Pool::{$subname};
-      } }
+    } }
     # Finally, pop the frame
     $self->popFrame; }
   else {
@@ -649,26 +685,21 @@ sub getActiveScopes {
 
 #======================================================================
 # Units.
-#   Put here since it could concievably evolve to depend on the current font.
-
-# Conversion to scaled points
-my %UNITS = (    # [CONSTANT]
-  pt => 65536, pc => 12 * 65536, in => 72.27 * 65536, bp => 72.27 * 65536 / 72,
-  cm => 72.27 * 65536 / 2.54, mm => 72.27 * 65536 / 2.54 / 10, dd => 1238 * 65536 / 1157,
-  cc => 12 * 1238 * 65536 / 1157, sp => 1);
 
 sub convertUnit {
   my ($self, $unit) = @_;
   $unit = lc($unit);
+  # Put here since it could concievably evolve to depend on the current font.
   # Eventually try to track font size?
   if    ($unit eq 'em') { return 10.0 * 65536; }
   elsif ($unit eq 'ex') { return 4.3 * 65536; }
   elsif ($unit eq 'mu') { return 10.0 * 65536 / 18; }
   else {
-    my $sp = $UNITS{$unit};
+    my $units = $self->lookupValue('UNITS');
+    my $sp    = $$units{$unit};
     if (!$sp) {
       Warn('expected', '<unit>', undef, "Illegal unit of measure '$unit', assuming pt.");
-      $sp = $UNITS{'pt'}; }
+      $sp = $$units{'pt'}; }
     return $sp; } }
 
 #======================================================================
@@ -726,7 +757,7 @@ sub getStatusCode {
 
 __END__
 
-=pod 
+=pod
 
 =head1 NAME
 

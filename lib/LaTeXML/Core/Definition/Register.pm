@@ -24,7 +24,7 @@ use base qw(LaTeXML::Core::Definition::Primitive);
 sub new {
   my ($class, $cs, $parameters, %traits) = @_;
   return bless { cs => $cs, parameters => $parameters,
-    locator => $STATE->getStomach->getGullet->getMouth->getLocator,
+    locator => $STATE->getStomach->getGullet->getLocator,
     %traits }, $class; }
 
 sub isPrefix {
@@ -78,7 +78,7 @@ sub invoke {
 
 __END__
 
-=pod 
+=pod
 
 =head1 NAME
 
